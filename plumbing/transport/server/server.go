@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/packfile"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v5/plumbing/protocol/packp/capability"
+	"github.com/go-git/go-git/v5/plumbing/protocol/packp/sideband"
 	"github.com/go-git/go-git/v5/plumbing/revlist"
 	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/go-git/go-git/v5/plumbing/transport"
@@ -166,11 +167,27 @@ func (s *upSession) UploadPack(ctx context.Context, req *packp.UploadPackRequest
 		return nil, err
 	}
 
+	var e *packfile.Encoder
+	var sidebandType sideband.Type
 	pr, pw := io.Pipe()
-	e := packfile.NewEncoder(pw, s.storer, false)
+	switch {
+	case s.caps.Supports(capability.Sideband64k):
+		sidebandType = sideband.Sideband64k
+		mux := sideband.NewMuxer(sideband.Sideband64k, pw)
+		e = packfile.NewEncoder(mux, s.storer, false)
+	default:
+		e = packfile.NewEncoder(pw, s.storer, false)
+	}
+
 	go func() {
 		// TODO: plumb through a pack window.
 		_, err := e.Encode(objs, 10)
+
+		// write flush packet
+		if sidebandType == sideband.Sideband64k {
+			pw.Write([]byte("0000"))
+		}
+
 		pw.CloseWithError(err)
 	}()
 
@@ -194,6 +211,10 @@ func (*upSession) setSupportedCapabilities(c *capability.List) error {
 	}
 
 	if err := c.Set(capability.OFSDelta); err != nil {
+		return err
+	}
+
+	if err := c.Set(capability.Sideband64k); err != nil {
 		return err
 	}
 
