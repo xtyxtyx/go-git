@@ -185,7 +185,7 @@ func (s *upSession) UploadPack(ctx context.Context, req *packp.UploadPackRequest
 
 		// write flush packet
 		if sidebandType == sideband.Sideband64k {
-			pw.Write([]byte("0000"))
+			// pw.Write([]byte("0000"))
 		}
 
 		pw.CloseWithError(err)
